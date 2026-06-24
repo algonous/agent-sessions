@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/algonous/cc-viewer/internal/data"
-	"github.com/algonous/cc-viewer/internal/publish"
+	"github.com/algonous/agent-sessions/internal/data"
+	"github.com/algonous/agent-sessions/internal/publish"
 	"github.com/algonous/md2html/md2html"
 )
 
-// Server handles HTTP requests for the cc-viewer web UI.
+// Server handles HTTP requests for the agent-sessions web UI.
 type Server struct {
 	roots []data.SourceRoot
 	webFS fs.FS

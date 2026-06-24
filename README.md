@@ -1,8 +1,8 @@
-# cc-viewer
+# agent-sessions
 
-Web-based session browser for Claude Code conversation history.
+Web-based session browser and work-dir migrator for Claude Code and Codex sessions.
 
-Browse, inspect, and export your Claude Code sessions with token/cost data.
+Browse, inspect, export, and migrate local agent sessions with token/cost data.
 Serves an embedded web UI from a single Go binary -- no Node.js, no build step.
 
 ## Install
@@ -11,31 +11,60 @@ Serves an embedded web UI from a single Go binary -- no Node.js, no build step.
 make
 ```
 
-Builds to `~/.local/bin/cc-viewer` by default. Override with `BIN=/your/path make`.
+Builds to `~/.local/bin/agent-sessions` by default. Override with `BIN=/your/path make`.
 
 ## Usage
 
+Default command starts the viewer:
+
 ```
-cc-viewer [--addr 127.0.0.1:0]
+agent-sessions [--addr 127.0.0.1:0]
+agent-sessions view [--addr 127.0.0.1:0]
 ```
 
-By default, `cc-viewer` auto-discovers all supported agent history roots under `$HOME`
-(for example `~/.claude`, `~/.codex`) and shows them together.
+By default, `agent-sessions` auto-discovers all supported agent history roots
+under `$HOME` (for example `~/.claude`, `~/.codex`) and shows them together.
 
 Optional override:
 
 ```
-cc-viewer --data-dirs ~/.claude,~/.codex
+agent-sessions --data-dirs ~/.claude,~/.codex
 ```
 
 Legacy single-root mode (still supported):
 
 ```
-cc-viewer --claude-dir ~/.claude
-cc-viewer --claude-dir ~/.codex
+agent-sessions --claude-dir ~/.claude
+agent-sessions --claude-dir ~/.codex
 ```
 
 Starts a local HTTP server and prints the URL. Open in a browser.
+
+### Migrate a session work dir
+
+```
+agent-sessions migrate [--dry-run] [--source auto|claude|codex] <session-id> <target-dir>
+```
+
+Examples:
+
+```
+agent-sessions migrate --dry-run claude:11111111-2222-3333-4444-555555555555 ~/code/real-project
+agent-sessions migrate codex:019ef72e-ebe0-7833-a478-81555158a83c ~/code/real-project
+```
+
+Migration keeps the same session id and moves the session's cwd binding from the
+old directory to the target directory. Close the active Claude/Codex session
+before migrating.
+
+For Claude, migration updates `history.jsonl`, moves the session transcript to
+the target encoded project directory, moves the per-session side directory when
+present, and rewrites top-level `cwd` fields. Project-level data such as
+`projects/<encoded>/memory/` is not moved.
+
+For Codex, migration updates `state_5.sqlite.threads.cwd` and rewrites
+`session_meta` / `turn_context` cwd fields in the rollout JSONL. Codex rollout
+files stay in their date-based location.
 
 ### Viewer sections
 
@@ -45,7 +74,7 @@ Each round displays labeled chat blocks with fold/unfold toggles:
 - **CONTEXT** (purple) -- system-injected context, folded by default
 - **TOOL** (green) -- tool calls as structured list, folded by default
 - **THINKING** (gray italic) -- chain of thought, folded by default
-- **CLAUDE** (blue) -- assistant response, open by default
+- **CLAUDE** / **CODEX** -- assistant response, open by default
 
 Content within blocks is rendered server-side via the [md2html](https://github.com/algonous/md2html) pipeline. Block structure and layout are owned by the frontend.
 
@@ -81,18 +110,20 @@ Reads from both roots by default:
   - `projects/<encoded-dir>/<sessionId>.jsonl` -- full transcripts
 - `~/.codex/`
   - `history.jsonl` -- session index (grouped by session_id)
+  - `state_5.sqlite` -- Codex thread index, including cwd
   - `sessions/YYYY/MM/DD/rollout-*.jsonl` -- full transcripts
 
 ## Architecture
 
 ```
-main.go                  -- HTTP server entry point, go:embed web/
+main.go                  -- CLI entry point, go:embed web/
 internal/
   data/
     types.go             -- Round, SessionSummary, Usage, export types
     history.go           -- parse history.jsonl into SessionSummary list
     transcript.go        -- parse per-session JSONL into Transcript (rounds)
     export.go            -- GenerateJSONL, GenerateMarkdown (in-memory)
+    migrate.go           -- Claude/Codex work-dir migration
   server/
     server.go            -- HTTP handlers, md2html rendering, JSON API
 web/

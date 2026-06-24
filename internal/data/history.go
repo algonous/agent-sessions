@@ -595,7 +595,19 @@ func FindTranscriptPath(claudeDir string, rawSessionID string) (string, error) {
 }
 
 func EncodeProjectDir(project string) string {
-	return strings.ReplaceAll(project, "/", "-")
+	return ClaudeProjectDirName(project)
+}
+
+func ClaudeProjectDirName(project string) string {
+	var b strings.Builder
+	for _, r := range project {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 func ResolveTranscriptPath(s SessionSummary) (string, error) {

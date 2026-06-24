@@ -19,7 +19,7 @@ func testTranscript() (*Transcript, SessionSummary) {
 		Rounds: []Round{
 			{
 				Index:         0,
-				UserTimestamp:  "2026-02-26T11:00:00Z",
+				UserTimestamp: "2026-02-26T11:00:00Z",
 				Blocks: []Block{
 					{Role: "you", Text: "hello"},
 					{Role: "thinking", Text: "let me think about this"},
@@ -31,7 +31,7 @@ func testTranscript() (*Transcript, SessionSummary) {
 			},
 			{
 				Index:         1,
-				UserTimestamp:  "2026-02-26T11:01:00Z",
+				UserTimestamp: "2026-02-26T11:01:00Z",
 				Blocks: []Block{
 					{Role: "you", Text: "fix bug"},
 					{Role: "claude", Text: "Done!"},
@@ -220,7 +220,7 @@ func TestGenerateMarkdownMergesConsecutiveTools(t *testing.T) {
 	transcript := &Transcript{
 		SessionID: "s1",
 		Rounds: []Round{{
-			Index:        0,
+			Index:         0,
 			UserTimestamp: "2026-02-26T11:00:00Z",
 			Blocks: []Block{
 				{Role: "you", Text: "do stuff"},
@@ -251,7 +251,7 @@ func TestGenerateMarkdownEscapesBackticks(t *testing.T) {
 	transcript := &Transcript{
 		SessionID: "s1",
 		Rounds: []Round{{
-			Index:        0,
+			Index:         0,
 			UserTimestamp: "2026-02-26T11:00:00Z",
 			Blocks: []Block{
 				{Role: "claude", Text: "Here is code:\n```go\nfmt.Println(\"hi\")\n```\nDone."},
@@ -271,7 +271,7 @@ func TestConfigDir(t *testing.T) {
 	// With XDG set.
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	got := ConfigDir()
-	if got != "/tmp/xdg/cc-viewer" {
+	if got != "/tmp/xdg/agent-sessions" {
 		t.Errorf("got %q with XDG set", got)
 	}
 
@@ -279,7 +279,7 @@ func TestConfigDir(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	got = ConfigDir()
 	home, _ := os.UserHomeDir()
-	want := filepath.Join(home, ".config", "cc-viewer")
+	want := filepath.Join(home, ".config", "agent-sessions")
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

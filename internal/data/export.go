@@ -188,11 +188,11 @@ func indexRounds(rounds []Round) map[int]*Round {
 	return m
 }
 
-// ConfigDir returns the cc-viewer config directory, respecting XDG_CONFIG_HOME.
+// ConfigDir returns the agent-sessions config directory, respecting XDG_CONFIG_HOME.
 func ConfigDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "cc-viewer")
+		return filepath.Join(xdg, "agent-sessions")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "cc-viewer")
+	return filepath.Join(home, ".config", "agent-sessions")
 }

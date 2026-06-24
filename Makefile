@@ -1,5 +1,5 @@
 BIN ?= $(HOME)/.local/bin
-BINARY = cc-viewer
+BINARY = agent-sessions
 
 .PHONY: all test build clean
 

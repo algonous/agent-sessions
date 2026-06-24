@@ -345,13 +345,13 @@ function doPublish() {
 
 function loadPinnedSessions() {
   try {
-    var s = localStorage.getItem('cc-viewer-pinned');
+    var s = localStorage.getItem('agent-sessions-pinned') || localStorage.getItem('cc-viewer-pinned');
     if (s) state.pinnedSessions = JSON.parse(s);
   } catch(e) {}
 }
 
 function savePinnedSessions() {
-  try { localStorage.setItem('cc-viewer-pinned', JSON.stringify(state.pinnedSessions)); }
+  try { localStorage.setItem('agent-sessions-pinned', JSON.stringify(state.pinnedSessions)); }
   catch(e) {}
 }
 

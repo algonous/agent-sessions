@@ -1,12 +1,12 @@
-# cc-viewer: Claude Code Session Browser
+# agent-sessions: Agent Session Browser
 
 ## Overview
 
-A web-based application that browses Claude Code conversation history stored locally under `~/.claude/`.
+A web-based application that browses Claude Code and Codex conversation history stored locally.
 
 ## Features
 
-- Browse all Claude Code sessions with timestamps and project info
+- Browse all Claude Code and Codex sessions with timestamps and project info
 - Sort sessions by most recent activity
 - View full transcripts organized by rounds; rounds ordered by time, blocks within each round ordered by time
 - Fold/unfold blocks (context, tool, thinking folded by default)
@@ -55,7 +55,7 @@ Exit-like entries in `display`:
 - Exit-like is strictly defined as two commands: `"/exit"` and `"exit"`.
 - Compare after trimming whitespace (`strings.TrimSpace`), so `"/exit "` is treated as `"/exit"`.
 - Correct session state rule should be based on the chronologically last entry for a session: exited only if the last entry is one of the two exit commands above.
-- Current `cc-viewer` codebase does **not** store an `exited` flag in `SessionSummary` or render live/exited status in UI.
+- Current `agent-sessions` codebase does **not** store an `exited` flag in `SessionSummary` or render live/exited status in UI.
 
 Resuming a session (`claude --resume`) has two behaviors depending on whether the context window overflowed:
 
@@ -72,7 +72,8 @@ Resuming a session (`claude --resume`) has two behaviors depending on whether th
 
 Path: `~/.claude/projects/<encoded-project>/<sessionId>.jsonl`
 
-Path encoding: every `/` in the absolute project path becomes `-`.
+Path encoding: non-alphanumeric path characters become `-`; existing `-`
+characters are preserved. In practice this folds `/`, `_`, and `.` into `-`.
 Example: `/Users/frank/code/foo` -> `-Users-frank-code-foo`
 
 Each line is a JSON object with a top-level `type` field. Common observed types include:
