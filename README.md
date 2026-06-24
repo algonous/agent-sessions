@@ -15,11 +15,14 @@ Builds to `~/.local/bin/agent-sessions` by default. Override with `BIN=/your/pat
 
 ## Usage
 
-Default command starts the viewer:
+Default command starts or reuses the background viewer and prints the Web URL:
 
 ```
-agent-sessions [--addr 127.0.0.1:0]
-agent-sessions view [--addr 127.0.0.1:0]
+agent-sessions
+agent-sessions view
+agent-sessions open
+agent-sessions stop
+agent-sessions info
 ```
 
 By default, `agent-sessions` auto-discovers all supported agent history roots
@@ -38,7 +41,24 @@ agent-sessions --claude-dir ~/.claude
 agent-sessions --claude-dir ~/.codex
 ```
 
-Starts a local HTTP server and prints the URL. Open in a browser.
+The viewer listens on a random localhost port and records the live daemon in:
+
+```
+~/.config/agent-sessions/server.json
+~/.config/agent-sessions/server.lock
+~/.config/agent-sessions/server.run.lock
+~/.config/agent-sessions/server.log
+```
+
+`agent-sessions` and `agent-sessions view` reuse the existing daemon only when
+its protocol version, roots, and listen address match the current request. If a
+different viewer is already running, stop it first with `agent-sessions stop`.
+
+For debugging, run the HTTP server in the foreground:
+
+```
+agent-sessions view --foreground [--addr 127.0.0.1:0]
+```
 
 ### Migrate a session work dir
 
@@ -117,6 +137,7 @@ Reads from both roots by default:
 
 ```
 main.go                  -- CLI entry point, go:embed web/
+daemon.go                -- background viewer launch/reuse and status endpoints
 internal/
   data/
     types.go             -- Round, SessionSummary, Usage, export types

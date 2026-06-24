@@ -4,14 +4,9 @@ import (
 	"embed"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/algonous/agent-sessions/internal/data"
-	"github.com/algonous/agent-sessions/internal/server"
 )
 
 //go:embed web
@@ -24,6 +19,18 @@ func main() {
 		case "view":
 			runView(args[1:])
 			return
+		case "open":
+			runOpen(args[1:])
+			return
+		case "stop":
+			runStop(args[1:])
+			return
+		case "info":
+			runInfo(args[1:])
+			return
+		case "serve":
+			runServe(args[1:])
+			return
 		case "migrate":
 			runMigrate(args[1:])
 			return
@@ -33,73 +40,6 @@ func main() {
 		}
 	}
 	runView(args)
-}
-
-func runView(args []string) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	fs := flag.NewFlagSet("view", flag.ExitOnError)
-	claudeDir := fs.String("claude-dir", "", "legacy single data directory (for compatibility)")
-	dataDirs := fs.String("data-dirs", "", "comma-separated data roots; if omitted, auto-discovers all supported agent roots under $HOME")
-	addr := fs.String("addr", "127.0.0.1:0", "listen address (host:port, use port 0 for auto)")
-	fs.Parse(args)
-
-	roots := make([]data.SourceRoot, 0, 4)
-	if *claudeDir != "" {
-		source := data.DetectSourceFromDir(*claudeDir)
-		if source == "" {
-			source = data.SourceClaude
-		}
-		roots = append(roots, data.SourceRoot{Source: source, Dir: *claudeDir})
-	} else if strings.TrimSpace(*dataDirs) != "" {
-		for _, raw := range strings.Split(*dataDirs, ",") {
-			dir := strings.TrimSpace(raw)
-			if dir == "" {
-				continue
-			}
-			if strings.HasPrefix(dir, "~"+string(os.PathSeparator)) {
-				dir = filepath.Join(home, dir[2:])
-			}
-			source := data.DetectSourceFromDir(dir)
-			if source != "" {
-				roots = append(roots, data.SourceRoot{Source: source, Dir: dir})
-			}
-		}
-	} else {
-		roots = data.DiscoverDefaultRoots(home)
-	}
-
-	sessions, err := data.LoadSessionsMulti(roots)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error loading sessions: %v\n", err)
-		os.Exit(1)
-	}
-
-	if len(sessions) == 0 {
-		fmt.Println("No sessions found.")
-		os.Exit(0)
-	}
-
-	srv := server.New(roots, sessions, webFS)
-	srv.StartHistoryTail()
-
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	url := fmt.Sprintf("http://%s", ln.Addr().String())
-	fmt.Printf("agent-sessions serving %d sessions at %s\n", len(sessions), url)
-
-	if err := http.Serve(ln, srv.Handler()); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 }
 
 func runMigrate(args []string) {
@@ -137,6 +77,9 @@ func printUsage() {
 Usage:
   agent-sessions [view options]
   agent-sessions view [view options]
+  agent-sessions open [view options]
+  agent-sessions stop
+  agent-sessions info
   agent-sessions migrate [migrate options] <session-id> <target-dir>
 
 Run "agent-sessions view -h" or "agent-sessions migrate -h" for command options.`)

@@ -13,8 +13,8 @@ const (
 
 // SourceRoot describes one history root and its source type.
 type SourceRoot struct {
-	Source string
-	Dir    string
+	Source string `json:"source"`
+	Dir    string `json:"dir"`
 }
 
 type SourceAdapter struct {
