@@ -102,13 +102,13 @@ func TestMigrateClaudeSession(t *testing.T) {
 	}
 }
 
-func TestMigrateClaudeSessionRejectsAnyActiveSession(t *testing.T) {
+func TestMigrateClaudeSessionRejectsActiveTargetSession(t *testing.T) {
 	root := t.TempDir()
 	rawID := "11111111-2222-3333-4444-555555555555"
 	if err := os.MkdirAll(filepath.Join(root, "sessions"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	state := `{"sessionId":"99999999-2222-3333-4444-555555555555","status":"busy","cwd":"/tmp/other"}`
+	state := `{"sessionId":"` + rawID + `","status":"busy","cwd":"/tmp/old"}`
 	if err := os.WriteFile(filepath.Join(root, "sessions", "123.json"), []byte(state), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +129,84 @@ func TestMigrateClaudeSessionRejectsAnyActiveSession(t *testing.T) {
 	_, err := PlanSessionMigration(MigrationOptions{Source: SourceClaude, DataDir: root, SessionID: rawID, TargetDir: target})
 	if err == nil || !strings.Contains(err.Error(), "appears active") {
 		t.Fatalf("expected active session error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "close all") {
+		t.Fatalf("error should not say 'close all', got %v", err)
+	}
+}
+
+func TestMigrateClaudeSessionAllowsUnrelatedActiveSession(t *testing.T) {
+	root := t.TempDir()
+	oldProject := filepath.Join(root, "repo", "my_repo")
+	targetProject := filepath.Join(root, "repo", "target_project")
+	rawID := "11111111-2222-3333-4444-555555555555"
+	oldProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(oldProject))
+	sessionDir := filepath.Join(oldProjectDir, rawID)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(targetProject, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sessions"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// An unrelated active session must not block the migration.
+	state := `{"sessionId":"99999999-2222-3333-4444-555555555555","status":"busy","cwd":"/tmp/other"}`
+	if err := os.WriteFile(filepath.Join(root, "sessions", "123.json"), []byte(state), 0644); err != nil {
+		t.Fatal(err)
+	}
+	history := `{"sessionId":"` + rawID + `","timestamp":1000,"project":"` + oldProject + `","display":"hello"}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, "history.jsonl"), []byte(history), 0644); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"type":"user","sessionId":"` + rawID + `","cwd":"` + oldProject + `","message":{"role":"user","content":"hello"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(oldProjectDir, rawID+".jsonl"), []byte(transcript), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "tool.json"), []byte(`{"ok":true}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := MigrateSession(MigrationOptions{
+		Source:    SourceClaude,
+		DataDir:   root,
+		SessionID: rawID,
+		TargetDir: targetProject,
+		BackupDir: filepath.Join(root, "backup"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(targetProject))
+	if _, err := os.Stat(filepath.Join(newProjectDir, rawID+".jsonl")); err != nil {
+		t.Fatalf("new transcript missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(newProjectDir, rawID, "tool.json")); err != nil {
+		t.Fatalf("session dir missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(oldProjectDir, rawID+".jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("old transcript should be gone, err=%v", err)
+	}
+	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
+		t.Fatalf("old session dir should be gone, err=%v", err)
+	}
+	historyOut, err := os.ReadFile(filepath.Join(root, "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(historyOut), `"project":"`+targetProject+`"`) {
+		t.Fatalf("history not updated: %s", historyOut)
+	}
+	foundWarning := false
+	for _, w := range plan.Warnings {
+		if strings.Contains(w, "history.jsonl") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected history.jsonl warning, got %+v", plan.Warnings)
 	}
 }
 

@@ -249,7 +249,8 @@ func resolveMigrationSession(opts MigrationOptions) (SessionSummary, error) {
 }
 
 func planClaudeMigration(plan *MigrationPlan) error {
-	if err := checkClaudeNoActiveSessions(plan.DataDir); err != nil {
+	otherActive, err := checkClaudeActiveSessions(plan.DataDir, plan.RawSessionID)
+	if err != nil {
 		return err
 	}
 	transcriptPath, err := ResolveTranscriptPath(plan.session)
@@ -288,6 +289,9 @@ func planClaudeMigration(plan *MigrationPlan) error {
 	}
 	if _, err := os.Stat(filepath.Join(oldProjectDir, "memory")); err == nil {
 		plan.Warnings = append(plan.Warnings, "old Claude project-level memory exists and will not be moved")
+	}
+	if otherActive {
+		plan.Warnings = append(plan.Warnings, "other active Claude sessions may append to history.jsonl during migration; concurrent history entries may not be preserved (best-effort)")
 	}
 	return nil
 }
@@ -618,13 +622,17 @@ func openSQLite(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-func checkClaudeNoActiveSessions(claudeDir string) error {
+// checkClaudeActiveSessions scans ~/.claude/sessions/*.json. It returns an error if the
+// session being migrated (rawSessionID) is itself active, since migration deletes its
+// transcript and session dir. Unrelated active sessions do not block migration but are
+// reported via otherActive so the caller can warn about the shared history.jsonl rewrite.
+func checkClaudeActiveSessions(claudeDir, rawSessionID string) (otherActive bool, err error) {
 	entries, err := os.ReadDir(filepath.Join(claudeDir, "sessions"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
@@ -646,9 +654,12 @@ func checkClaudeNoActiveSessions(claudeDir string) error {
 		if claudeSessionStatusInactive(state.Status) {
 			continue
 		}
-		return fmt.Errorf("Claude session appears active in %s (session=%s status=%q cwd=%q); close all Claude sessions before migrating", path, state.SessionID, state.Status, state.CWD)
+		if state.SessionID == rawSessionID {
+			return false, fmt.Errorf("Claude session appears active in %s (session=%s status=%q cwd=%q); close that Claude session before migrating", path, state.SessionID, state.Status, state.CWD)
+		}
+		otherActive = true
 	}
-	return nil
+	return otherActive, nil
 }
 
 func claudeSessionStatusInactive(status string) bool {
