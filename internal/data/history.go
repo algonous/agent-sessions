@@ -626,16 +626,16 @@ func ResolveTranscriptPath(s SessionSummary) (string, error) {
 	case SourceClaude:
 		// Prefer the transcript under the session's own project. The same raw
 		// session id can have fragments in multiple project dirs after a
-		// `claude --resume <id>` from a different cwd; a pre-resolved FilePath
-		// (or an arbitrary FindTranscriptPath match) may point at the wrong one.
+		// `claude --resume <id>` from a different cwd. We deliberately do NOT
+		// trust a pre-resolved s.FilePath here: indexClaudeTranscriptText sets
+		// it to the first project-dir match, which may be the wrong fragment.
+		// When the project-derived path is missing or noncanonical, fall through
+		// to FindTranscriptPath, which errors on ambiguity rather than guessing.
 		if s.Project != "" {
 			candidate := filepath.Join(s.DataDir, "projects", ClaudeProjectDirName(s.Project), s.RawSessionID+".jsonl")
 			if _, err := os.Stat(candidate); err == nil {
 				return candidate, nil
 			}
-		}
-		if s.FilePath != "" {
-			return s.FilePath, nil
 		}
 		return FindTranscriptPath(s.DataDir, s.RawSessionID)
 	case SourceCodex:

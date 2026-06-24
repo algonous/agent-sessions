@@ -185,3 +185,33 @@ func TestResolveTranscriptPathPrefersProject(t *testing.T) {
 		t.Fatalf("ResolveTranscriptPath = %q, want project fragment %q", got, want)
 	}
 }
+
+func TestResolveTranscriptPathNoncanonicalProjectIsAmbiguous(t *testing.T) {
+	dir := t.TempDir()
+	rawID := "abc-123"
+	// Two fragments exist, but neither is under ClaudeProjectDirName(s.Project),
+	// so the project-derived candidate is missing. FilePath points at one of
+	// them (as a stale indexClaudeTranscriptText match would). Resolution must
+	// surface the ambiguity rather than silently trusting FilePath.
+	dirA := filepath.Join(dir, "projects", "-private-tmp-xyz")
+	dirB := filepath.Join(dir, "projects", "-tmp-xyz")
+	for _, d := range []string{dirA, dirB} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, rawID+".jsonl"), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := SessionSummary{
+		Source:       SourceClaude,
+		RawSessionID: rawID,
+		DataDir:      dir,
+		Project:      "/Users/kfu/code/foo", // no matching project dir on disk
+		FilePath:     filepath.Join(dirA, rawID+".jsonl"),
+	}
+	_, err := ResolveTranscriptPath(s)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguity error, got %v", err)
+	}
+}
