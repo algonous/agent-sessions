@@ -3,6 +3,7 @@ package data
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -131,5 +132,56 @@ func TestFindTranscriptPath(t *testing.T) {
 	_, err = FindTranscriptPath(dir, "nonexistent")
 	if !os.IsNotExist(err) {
 		t.Errorf("expected not-exist error, got %v", err)
+	}
+}
+
+func TestFindTranscriptPathAmbiguous(t *testing.T) {
+	dir := t.TempDir()
+	rawID := "abc-123"
+	for _, proj := range []string{"-Users-kfu-code-foo", "-tmp-xyz"} {
+		projDir := filepath.Join(dir, "projects", proj)
+		if err := os.MkdirAll(projDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, rawID+".jsonl"), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := FindTranscriptPath(dir, rawID)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguity error, got %v", err)
+	}
+}
+
+func TestResolveTranscriptPathPrefersProject(t *testing.T) {
+	dir := t.TempDir()
+	rawID := "abc-123"
+	ownProject := "/Users/kfu/code/foo"
+	ownDir := filepath.Join(dir, "projects", ClaudeProjectDirName(ownProject))
+	otherDir := filepath.Join(dir, "projects", "-tmp-xyz")
+	for _, d := range []string{ownDir, otherDir} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, rawID+".jsonl"), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// FilePath deliberately points at the wrong project's fragment, as a
+	// stale resolution from indexClaudeTranscriptText would.
+	s := SessionSummary{
+		Source:       SourceClaude,
+		RawSessionID: rawID,
+		DataDir:      dir,
+		Project:      ownProject,
+		FilePath:     filepath.Join(otherDir, rawID+".jsonl"),
+	}
+	got, err := ResolveTranscriptPath(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(ownDir, rawID+".jsonl")
+	if got != want {
+		t.Fatalf("ResolveTranscriptPath = %q, want project fragment %q", got, want)
 	}
 }

@@ -582,16 +582,27 @@ func FindTranscriptPath(claudeDir string, rawSessionID string) (string, error) {
 		return "", err
 	}
 	filename := rawSessionID + ".jsonl"
+	var matches []string
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		candidate := filepath.Join(projectsDir, entry.Name(), filename)
 		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+			matches = append(matches, candidate)
 		}
 	}
-	return "", os.ErrNotExist
+	switch len(matches) {
+	case 0:
+		return "", os.ErrNotExist
+	case 1:
+		return matches[0], nil
+	default:
+		// The same session id can appear in multiple project dirs after a
+		// `claude --resume <id>` from a different cwd. Refuse to pick one
+		// arbitrarily; the caller should resolve by project instead.
+		return "", fmt.Errorf("ambiguous Claude transcript for session %s: %d matches (%s)", rawSessionID, len(matches), strings.Join(matches, ", "))
+	}
 }
 
 func EncodeProjectDir(project string) string {
@@ -611,13 +622,26 @@ func ClaudeProjectDirName(project string) string {
 }
 
 func ResolveTranscriptPath(s SessionSummary) (string, error) {
-	if s.FilePath != "" {
-		return s.FilePath, nil
-	}
 	switch s.Source {
 	case SourceClaude:
+		// Prefer the transcript under the session's own project. The same raw
+		// session id can have fragments in multiple project dirs after a
+		// `claude --resume <id>` from a different cwd; a pre-resolved FilePath
+		// (or an arbitrary FindTranscriptPath match) may point at the wrong one.
+		if s.Project != "" {
+			candidate := filepath.Join(s.DataDir, "projects", ClaudeProjectDirName(s.Project), s.RawSessionID+".jsonl")
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+		if s.FilePath != "" {
+			return s.FilePath, nil
+		}
 		return FindTranscriptPath(s.DataDir, s.RawSessionID)
 	case SourceCodex:
+		if s.FilePath != "" {
+			return s.FilePath, nil
+		}
 		if m := findCodexTranscriptPaths(s.DataDir); m != nil {
 			if p, ok := m[s.RawSessionID]; ok {
 				return p, nil
