@@ -33,6 +33,7 @@ func TestMigrateClaudeSession(t *testing.T) {
 	if err := os.MkdirAll(targetProject, 0755); err != nil {
 		t.Fatal(err)
 	}
+	expectedTarget := mustCleanAbsPath(t, targetProject)
 	history := `{"sessionId":"11111111-2222-3333-4444-555555555555","timestamp":1000,"project":"` + oldProject + `","display":"hello"}
 {"sessionId":"other","timestamp":2000,"project":"/other","display":"other"}
 `
@@ -59,14 +60,14 @@ func TestMigrateClaudeSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Source != SourceClaude || plan.OldProject != oldProject || plan.TargetDir != targetProject {
+	if plan.Source != SourceClaude || plan.OldProject != oldProject || plan.TargetDir != expectedTarget {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 	if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], "memory") {
 		t.Fatalf("expected memory warning, got %+v", plan.Warnings)
 	}
 
-	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(targetProject))
+	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(expectedTarget))
 	if _, err := os.Stat(filepath.Join(newProjectDir, rawID+".jsonl")); err != nil {
 		t.Fatalf("new transcript missing: %v", err)
 	}
@@ -84,14 +85,14 @@ func TestMigrateClaudeSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(historyOut), `"project":"`+targetProject+`"`) {
+	if !strings.Contains(string(historyOut), `"project":"`+expectedTarget+`"`) {
 		t.Fatalf("history not updated: %s", historyOut)
 	}
 	transcriptOut, err := os.ReadFile(filepath.Join(newProjectDir, rawID+".jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(transcriptOut), `"cwd":"`+targetProject+`"`) {
+	if !strings.Contains(string(transcriptOut), `"cwd":"`+expectedTarget+`"`) {
 		t.Fatalf("transcript cwd not updated: %s", transcriptOut)
 	}
 	if !strings.Contains(string(transcriptOut), `"file_path":"`+oldProject+`/main.go"`) {
@@ -148,6 +149,7 @@ func TestMigrateClaudeSessionAllowsUnrelatedActiveSession(t *testing.T) {
 	if err := os.MkdirAll(targetProject, 0755); err != nil {
 		t.Fatal(err)
 	}
+	expectedTarget := mustCleanAbsPath(t, targetProject)
 	if err := os.MkdirAll(filepath.Join(root, "sessions"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +181,7 @@ func TestMigrateClaudeSessionAllowsUnrelatedActiveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(targetProject))
+	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(expectedTarget))
 	if _, err := os.Stat(filepath.Join(newProjectDir, rawID+".jsonl")); err != nil {
 		t.Fatalf("new transcript missing: %v", err)
 	}
@@ -196,7 +198,7 @@ func TestMigrateClaudeSessionAllowsUnrelatedActiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(historyOut), `"project":"`+targetProject+`"`) {
+	if !strings.Contains(string(historyOut), `"project":"`+expectedTarget+`"`) {
 		t.Fatalf("history not updated: %s", historyOut)
 	}
 	foundWarning := false
@@ -207,6 +209,129 @@ func TestMigrateClaudeSessionAllowsUnrelatedActiveSession(t *testing.T) {
 	}
 	if !foundWarning {
 		t.Fatalf("expected history.jsonl warning, got %+v", plan.Warnings)
+	}
+}
+
+func TestMigrateClaudeSessionCanonicalizesSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	oldProject := filepath.Join(root, "repo", "my_repo")
+	realTarget := filepath.Join(root, "real", "target")
+	linkTarget := filepath.Join(root, "link-target")
+	rawID := "11111111-2222-3333-4444-555555555555"
+	oldProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(oldProject))
+	if err := os.MkdirAll(oldProjectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(realTarget, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realTarget, linkTarget); err != nil {
+		t.Fatal(err)
+	}
+	expectedTarget := mustCleanAbsPath(t, realTarget)
+	history := `{"sessionId":"` + rawID + `","timestamp":1000,"project":"` + oldProject + `","display":"hello"}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, "history.jsonl"), []byte(history), 0644); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"type":"user","sessionId":"` + rawID + `","cwd":"` + oldProject + `","message":{"role":"user","content":"hello"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(oldProjectDir, rawID+".jsonl"), []byte(transcript), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := MigrateSession(MigrationOptions{
+		Source:    SourceClaude,
+		DataDir:   root,
+		SessionID: rawID,
+		TargetDir: linkTarget,
+		BackupDir: filepath.Join(root, "backup"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TargetDir != expectedTarget {
+		t.Fatalf("TargetDir = %q, want resolved target %q", plan.TargetDir, expectedTarget)
+	}
+	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(expectedTarget))
+	if _, err := os.Stat(filepath.Join(newProjectDir, rawID+".jsonl")); err != nil {
+		t.Fatalf("new transcript missing under resolved target: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "projects", ClaudeProjectDirName(linkTarget), rawID+".jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("transcript should not be written under symlink target, err=%v", err)
+	}
+	historyOut, err := os.ReadFile(filepath.Join(root, "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(historyOut), `"project":"`+expectedTarget+`"`) {
+		t.Fatalf("history should use resolved target: %s", historyOut)
+	}
+	transcriptOut, err := os.ReadFile(filepath.Join(newProjectDir, rawID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(transcriptOut), `"cwd":"`+expectedTarget+`"`) {
+		t.Fatalf("transcript cwd should use resolved target: %s", transcriptOut)
+	}
+}
+
+func TestMigrateClaudeSessionRepairsNoncanonicalTargetProject(t *testing.T) {
+	root := t.TempDir()
+	realTarget := filepath.Join(root, "real", "target")
+	linkTarget := filepath.Join(root, "link-target")
+	rawID := "11111111-2222-3333-4444-555555555555"
+	if err := os.MkdirAll(realTarget, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realTarget, linkTarget); err != nil {
+		t.Fatal(err)
+	}
+	expectedTarget := mustCleanAbsPath(t, realTarget)
+	oldProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(linkTarget))
+	if err := os.MkdirAll(oldProjectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	history := `{"sessionId":"` + rawID + `","timestamp":1000,"project":"` + linkTarget + `","display":"hello"}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, "history.jsonl"), []byte(history), 0644); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"type":"user","sessionId":"` + rawID + `","cwd":"` + linkTarget + `","message":{"role":"user","content":"hello"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(oldProjectDir, rawID+".jsonl"), []byte(transcript), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := MigrateSession(MigrationOptions{
+		Source:    SourceClaude,
+		DataDir:   root,
+		SessionID: rawID,
+		TargetDir: linkTarget,
+		BackupDir: filepath.Join(root, "backup"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.OldProject != linkTarget || plan.TargetDir != expectedTarget {
+		t.Fatalf("unexpected plan projects: old=%q target=%q", plan.OldProject, plan.TargetDir)
+	}
+	newProjectDir := filepath.Join(root, "projects", ClaudeProjectDirName(expectedTarget))
+	if _, err := os.Stat(filepath.Join(newProjectDir, rawID+".jsonl")); err != nil {
+		t.Fatalf("new transcript missing under resolved target: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(oldProjectDir, rawID+".jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("old transcript should be gone, err=%v", err)
+	}
+	historyOut, err := os.ReadFile(filepath.Join(root, "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(historyOut), `"project":"`+expectedTarget+`"`) {
+		t.Fatalf("history should use resolved target: %s", historyOut)
+	}
+	transcriptOut, err := os.ReadFile(filepath.Join(newProjectDir, rawID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(transcriptOut), `"cwd":"`+expectedTarget+`"`) {
+		t.Fatalf("transcript cwd should use resolved target: %s", transcriptOut)
 	}
 }
 
@@ -221,6 +346,7 @@ func TestMigrateCodexSession(t *testing.T) {
 	if err := os.MkdirAll(targetProject, 0755); err != nil {
 		t.Fatal(err)
 	}
+	expectedTarget := mustCleanAbsPath(t, targetProject)
 	if err := os.WriteFile(filepath.Join(root, "history.jsonl"), []byte(`{"session_id":"`+rawID+`","ts":1000,"text":"hi"}`+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -272,8 +398,8 @@ func TestMigrateCodexSession(t *testing.T) {
 	if err := db.QueryRow("SELECT cwd FROM threads WHERE id = ?", rawID).Scan(&cwd); err != nil {
 		t.Fatal(err)
 	}
-	if cwd != targetProject {
-		t.Fatalf("cwd = %q, want %q", cwd, targetProject)
+	if cwd != expectedTarget {
+		t.Fatalf("cwd = %q, want %q", cwd, expectedTarget)
 	}
 	rolloutOut, err := os.ReadFile(rollout)
 	if err != nil {
@@ -289,12 +415,12 @@ func TestMigrateCodexSession(t *testing.T) {
 		if payload == nil {
 			continue
 		}
-		if cwd, _ := payload["cwd"].(string); cwd != "" && cwd != targetProject {
-			t.Fatalf("payload cwd = %q, want %q", cwd, targetProject)
+		if cwd, _ := payload["cwd"].(string); cwd != "" && cwd != expectedTarget {
+			t.Fatalf("payload cwd = %q, want %q", cwd, expectedTarget)
 		}
 		if roots, ok := payload["workspace_roots"].([]any); ok {
-			if roots[0] != targetProject {
-				t.Fatalf("workspace root = %q, want %q", roots[0], targetProject)
+			if roots[0] != expectedTarget {
+				t.Fatalf("workspace root = %q, want %q", roots[0], expectedTarget)
 			}
 			sawWorkspaceRoot = true
 		}
@@ -305,4 +431,13 @@ func TestMigrateCodexSession(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "backup", "state_5.sqlite")); err != nil {
 		t.Fatalf("sqlite backup missing: %v", err)
 	}
+}
+
+func mustCleanAbsPath(t *testing.T, path string) string {
+	t.Helper()
+	got, err := cleanPhysicalAbsPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }

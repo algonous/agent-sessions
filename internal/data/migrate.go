@@ -75,7 +75,7 @@ func PlanSessionMigration(opts MigrationOptions) (*MigrationPlan, error) {
 	if strings.TrimSpace(opts.SessionID) == "" {
 		return nil, errors.New("session id is required")
 	}
-	targetDir, err := cleanAbsPath(opts.TargetDir)
+	targetDir, err := cleanPhysicalAbsPath(opts.TargetDir)
 	if err != nil {
 		return nil, fmt.Errorf("target dir: %w", err)
 	}
@@ -754,6 +754,21 @@ func cleanAbsPath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Clean(abs), nil
+}
+
+func cleanPhysicalAbsPath(path string) (string, error) {
+	clean, err := cleanAbsPath(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(clean)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if os.IsNotExist(err) {
+		return clean, nil
+	}
+	return "", err
 }
 
 func expandUserPath(path string) (string, error) {
